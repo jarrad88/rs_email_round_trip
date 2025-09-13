@@ -1,0 +1,72 @@
+version: '3.8'
+
+services:
+  email-delivery-monitor:
+    build: 
+      context: .
+      dockerfile: Dockerfile
+    image: ghcr.io/jarrad88/rs_email_round_trip:latest
+    container_name: email-delivery-monitor
+    restart: unless-stopped
+    
+    # Environment variables from .env file
+    environment:
+      - OFFICE365_TENANT_ID=${OFFICE365_TENANT_ID}
+      - OFFICE365_CLIENT_ID=${OFFICE365_CLIENT_ID}
+      - OFFICE365_CLIENT_SECRET=${OFFICE365_CLIENT_SECRET}
+      - OFFICE365_SENDER_EMAIL=${OFFICE365_SENDER_EMAIL}
+      - GMAIL_RECIPIENT_EMAIL=${GMAIL_RECIPIENT_EMAIL}
+      - ZABBIX_SERVER=${ZABBIX_SERVER}
+      - ZABBIX_PORT=${ZABBIX_PORT:-10051}
+      - ZABBIX_HOST=${ZABBIX_HOST:-email-monitor}
+      - TEST_INTERVAL=${TEST_INTERVAL:-60}
+      - TIMEOUT_SECONDS=${TIMEOUT_SECONDS:-300}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+    
+    # Volume mounts
+    volumes:
+      - ./logs:/app/logs
+      - ./credentials:/app/credentials
+      - ./config:/app/config
+    
+    # Network configuration
+    networks:
+      - monitoring
+    
+    # Resource limits
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: '0.5'
+        reservations:
+          memory: 128M
+          cpus: '0.1'
+    
+    # Logging configuration
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    
+    # Health check
+    healthcheck:
+      test: ["CMD-SHELL", "python -c 'import os; exit(0 if os.path.exists(\"/app/logs/email_delivery_monitor.log\") else 1)'"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+networks:
+  monitoring:
+    driver: bridge
+    name: monitoring-network
+
+volumes:
+  logs:
+    driver: local
+  credentials:
+    driver: local
+  config:
+    driver: local

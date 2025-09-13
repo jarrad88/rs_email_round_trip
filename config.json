@@ -1,0 +1,31 @@
+{
+    "office365": {
+        "tenant_id": "YOUR_TENANT_ID",
+        "client_id": "YOUR_CLIENT_ID", 
+        "client_secret": "YOUR_CLIENT_SECRET",
+        "sender_email": "your-sender@yourdomain.com"
+    },
+    "gmail": {
+        "credentials_file": "gmail_credentials.json",
+        "token_file": "gmail_token.json",
+        "recipient_email": "your-recipient@gmail.com"
+    },
+    "monitoring": {
+        "test_interval_seconds": 60,
+        "timeout_seconds": 300,
+        "max_retries": 3,
+        "subject_prefix": "Email Delivery Test"
+    },
+    "zabbix": {
+        "enabled": true,
+        "server": "your-zabbix-server.com",
+        "port": 10051,
+        "host": "email-monitor"
+    },
+    "logging": {
+        "level": "INFO",
+        "file": "email_delivery_monitor.log",
+        "max_file_size_mb": 10,
+        "backup_count": 5
+    }
+}
