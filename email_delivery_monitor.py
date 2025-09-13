@@ -34,8 +34,15 @@ from pyzabbix import ZabbixMetric, ZabbixSender
 class EmailDeliveryMonitor:
     """Monitor email delivery time between Office 365 and Gmail."""
     
-    def __init__(self, config_file: str = "config.json"):
+    def __init__(self, config_file: str = None):
         """Initialize the email delivery monitor."""
+        # Auto-detect config file if not specified
+        if config_file is None:
+            if os.path.exists("config.docker.json"):
+                config_file = "config.docker.json"
+            else:
+                config_file = "config.json"
+        
         self.config = self._load_config(config_file)
         self._setup_logging()
         self.gmail_service = None

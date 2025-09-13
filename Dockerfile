@@ -30,7 +30,7 @@ RUN pip install --no-cache-dir --upgrade pip && \
 
 # Copy application files
 COPY email_delivery_monitor.py .
-COPY config.json .
+COPY config.docker.json .
 COPY startup.sh .
 
 # Create directories for logs and credentials
