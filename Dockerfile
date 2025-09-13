@@ -30,7 +30,8 @@ RUN pip install --no-cache-dir --upgrade pip && \
 
 # Copy application files
 COPY email_delivery_monitor.py .
-COPY config.docker.json .
+COPY config.json .
+COPY startup.sh .
 
 # Create directories for logs and credentials
 RUN mkdir -p /app/logs /app/credentials && \
@@ -46,5 +47,8 @@ VOLUME ["/app/logs", "/app/credentials"]
 HEALTHCHECK --interval=60s --timeout=10s --start-period=30s --retries=3 \
     CMD python -c "import os; exit(0 if os.path.exists('/app/logs/email_delivery_monitor.log') else 1)" || exit 1
 
+# Make startup script executable
+RUN chmod +x startup.sh
+
 # Default command
-CMD ["python", "email_delivery_monitor.py"]
+CMD ["./startup.sh"]
