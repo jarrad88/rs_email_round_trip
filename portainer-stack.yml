@@ -6,19 +6,20 @@ services:
     container_name: email-delivery-monitor
     restart: unless-stopped
 
-    # Environment variables - Configure these in Portainer
+    # Environment variables - Service Account Configuration
     environment:
-      - OFFICE365_TENANT_ID=${OFFICE365_TENANT_ID}
-      - OFFICE365_CLIENT_ID=${OFFICE365_CLIENT_ID}
-      - OFFICE365_CLIENT_SECRET=${OFFICE365_CLIENT_SECRET}
-      - OFFICE365_SENDER_EMAIL=${OFFICE365_SENDER_EMAIL}
-      - GMAIL_RECIPIENT_EMAIL=${GMAIL_RECIPIENT_EMAIL}
-      - ZABBIX_SERVER=${ZABBIX_SERVER}
-      - ZABBIX_PORT=${ZABBIX_PORT:-10051}
-      - ZABBIX_HOST=${ZABBIX_HOST:-email-monitor}
-      - TEST_INTERVAL=${TEST_INTERVAL:-60}
-      - TIMEOUT_SECONDS=${TIMEOUT_SECONDS:-300}
-      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - OFFICE365_TENANT_ID=your_tenant_id_here
+      - OFFICE365_CLIENT_ID=your_client_id_here
+      - OFFICE365_CLIENT_SECRET=your_client_secret_here
+      - OFFICE365_SENDER_EMAIL=email-monitor@innov8it.com.au
+      - GMAIL_RECIPIENT_EMAIL=your_gmail_email_here
+      - ZABBIX_SERVER=10.10.10.70
+      - ZABBIX_PORT=10051
+      - ZABBIX_HOST=email-monitor
+      - TEST_INTERVAL=60
+      - TIMEOUT_SECONDS=300
+      - LOG_LEVEL=INFO
+      - SKIP_GMAIL_SETUP=true
 
     # Volume mounts - these will be created automatically
     volumes:
