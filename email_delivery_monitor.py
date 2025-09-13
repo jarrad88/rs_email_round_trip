@@ -179,12 +179,19 @@ class EmailDeliveryMonitor:
     def _setup_gmail_service(self):
         """Setup Gmail API service."""
         try:
+            # Allow skipping Gmail setup (e.g., first run or read-only volumes)
+            skip = os.getenv('SKIP_GMAIL_SETUP', 'false').lower() == 'true'
             SCOPES = ['https://www.googleapis.com/auth/gmail.readonly']
             creds = None
             
             config = self.config['gmail']
             token_file = config.get('token_file', 'gmail_token.json')
             credentials_file = config.get('credentials_file', 'gmail_credentials.json')
+
+            if skip:
+                self.logger.warning("SKIP_GMAIL_SETUP=true; skipping Gmail API initialization.")
+                self.gmail_service = None
+                return True
             
             # Load existing token
             if os.path.exists(token_file):
@@ -208,27 +215,30 @@ class EmailDeliveryMonitor:
                         creds = flow.run_console()
                 
                 # Save credentials for future use
-                with open(token_file, 'w') as token:
-                    token.write(creds.to_json())
+                try:
+                    with open(token_file, 'w') as token:
+                        token.write(creds.to_json())
+                except PermissionError:
+                    if skip:
+                        self.logger.warning("Permissions error writing token, but SKIP_GMAIL_SETUP=true; continuing without Gmail.")
+                        self.gmail_service = None
+                        return True
+                    raise
             
             self.gmail_service = build('gmail', 'v1', credentials=creds)
             return True
             
+        except PermissionError as e:
+            # Respect skip flag on permission issues
+            if os.getenv('SKIP_GMAIL_SETUP', 'false').lower() == 'true':
+                self.logger.warning(f"Gmail setup skipped due to permission error: {e}")
+                self.gmail_service = None
+                return True
+            self.logger.error(f"Error setting up Gmail service: {e}")
+            return False
         except Exception as e:
             self.logger.error(f"Error setting up Gmail service: {e}")
             return False
-        
-        # Permission-safe fallback
-        try:
-            # Try to create/use /app/credentials/gmail_token.json
-            pass
-        except PermissionError as e:
-            import os, logging
-            if os.environ.get("SKIP_GMAIL_SETUP", "false").lower() == "true":
-                logging.warning("Gmail setup skipped due to permissions and SKIP_GMAIL_SETUP=true. Running send-only mode.")
-                return None
-            else:
-                raise
     
     def send_test_email(self, test_id: str) -> bool:
         """Send test email via Office 365."""
@@ -302,6 +312,10 @@ class EmailDeliveryMonitor:
         try:
             if not self.gmail_service:
                 if not self._setup_gmail_service():
+                    return None
+                # If still no Gmail service (skipped), bail out gracefully
+                if not self.gmail_service:
+                    self.logger.info("Gmail service not initialized (skipped); cannot check for email this run.")
                     return None
             
             start_time = time.time()
