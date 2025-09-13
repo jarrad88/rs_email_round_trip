@@ -291,12 +291,10 @@ class EmailDeliveryMonitor:
                                         continue
                         
                         if received_time:
-                            # Calculate delivery time
-                            delivery_time = (received_time - datetime.now(received_time.tzinfo)).total_seconds()
-                            if delivery_time < 0:  # Email was received
-                                delivery_time = abs(delivery_time)
-                                self.logger.info(f"Email {test_id} delivered in {delivery_time:.2f} seconds")
-                                return delivery_time
+                            # Calculate delivery time (time since test started)
+                            delivery_time = time.time() - start_time
+                            self.logger.info(f"Email {test_id} delivered in {delivery_time:.2f} seconds")
+                            return delivery_time
                 
                 except HttpError as e:
                     self.logger.error(f"Gmail API error: {e}")
@@ -351,7 +349,7 @@ class EmailDeliveryMonitor:
             # Send to Zabbix
             zbx = ZabbixSender(
                 zabbix_config['server'],
-                zabbix_config.get('port', 10051)
+                int(zabbix_config.get('port', 10051))
             )
             result = zbx.send(metrics)
             
@@ -379,6 +377,8 @@ class EmailDeliveryMonitor:
         
         # Wait for email delivery
         timeout = self.config['monitoring'].get('timeout_seconds', 300)
+        # Ensure timeout is an integer (environment variables are strings)
+        timeout = int(timeout)
         delivery_time = self.check_for_email(test_id, timeout)
         
         # Send results to Zabbix
