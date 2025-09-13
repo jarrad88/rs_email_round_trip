@@ -74,6 +74,17 @@ show_config() {
 
 # Main startup sequence
 main() {
+    echo "🔍 Loading optional .env files..."
+    for f in /app/.env /app/credentials/.env /.env; do
+        if [ -f "$f" ]; then
+            echo "   - sourcing $f"
+            set -a
+            # shellcheck disable=SC1090
+            . "$f"
+            set +a
+        fi
+    done
+
     echo "🔍 Checking environment variables..."
     check_env_vars
     
@@ -82,6 +93,11 @@ main() {
     
     echo "📋 Current configuration:"
     show_config
+    echo "🔎 Debug (masked):"
+    echo "   OFFICE365_TENANT_ID=${OFFICE365_TENANT_ID:0:8}..."
+    echo "   OFFICE365_CLIENT_ID=${OFFICE365_CLIENT_ID:0:8}..."
+    echo "   OFFICE365_CLIENT_SECRET=****"
+    echo "   GMAIL_RECIPIENT_EMAIL=${GMAIL_RECIPIENT_EMAIL}"
     
     echo "🚀 Starting Email Delivery Monitor..."
     echo "   (Press Ctrl+C to stop)"

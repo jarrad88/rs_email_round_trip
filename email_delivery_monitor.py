@@ -43,6 +43,13 @@ class EmailDeliveryMonitor:
             else:
                 config_file = "config.json"
         
+        # Load optional .env files before reading config so substitution works
+        self._load_env_files([
+            ".env",
+            "/app/.env",
+            "/app/credentials/.env",
+        ])
+
         self.config = self._load_config(config_file)
         self._setup_logging()
         self.gmail_service = None
@@ -64,6 +71,32 @@ class EmailDeliveryMonitor:
         except json.JSONDecodeError as e:
             print(f"Invalid JSON in configuration file: {e}")
             sys.exit(1)
+
+    def _load_env_files(self, paths):
+        """Load simple .env key=value files into environment (without external deps)."""
+        def _parse_and_set(path: str):
+            try:
+                if not os.path.exists(path):
+                    return False
+                with open(path, 'r') as f:
+                    for raw in f:
+                        line = raw.strip()
+                        if not line or line.startswith('#'):
+                            continue
+                        if '=' not in line:
+                            continue
+                        key, value = line.split('=', 1)
+                        key = key.strip()
+                        # Remove optional surrounding quotes
+                        value = value.strip().strip('"').strip("'")
+                        if key:
+                            os.environ[key] = value
+                return True
+            except Exception:
+                return False
+
+        for p in paths:
+            _parse_and_set(p)
     
     def _substitute_env_vars(self, content: str) -> str:
         """Substitute environment variables in configuration content."""
