@@ -333,34 +333,10 @@ class EmailDeliveryMonitor:
                     messages = results.get('messages', [])
                     
                     for message in messages:
-                        # Get message details
-                        msg = self.gmail_service.users().messages().get(
-                            userId='me', id=message['id']
-                        ).execute()
-                        
-                        # Extract received time from headers
-                        headers = msg['payload'].get('headers', [])
-                        received_time = None
-                        
-                        for header in headers:
-                            if header['name'].lower() == 'received':
-                                # Parse the first (most recent) Received header
-                                received_header = header['value']
-                                # Extract timestamp using regex
-                                time_match = re.search(r';.*?(\d{1,2}\s+\w{3}\s+\d{4}\s+\d{2}:\d{2}:\d{2})', received_header)
-                                if time_match:
-                                    try:
-                                        from dateutil import parser
-                                        received_time = parser.parse(time_match.group(1))
-                                        break
-                                    except:
-                                        continue
-                        
-                        if received_time:
-                            # Calculate delivery time (time since test started)
-                            delivery_time = time.time() - start_time
-                            self.logger.info(f"Email {test_id} delivered in {delivery_time:.2f} seconds")
-                            return delivery_time
+                        # Found matching message; treat as delivered
+                        delivery_time = time.time() - start_time
+                        self.logger.info(f"Email {test_id} delivered in {delivery_time:.2f} seconds (message id {message['id']})")
+                        return delivery_time
                 
                 except HttpError as e:
                     self.logger.error(f"Gmail API error: {e}")
