@@ -400,6 +400,8 @@ class EmailDeliveryMonitor:
         
         # Schedule tests
         interval = self.config['monitoring'].get('test_interval_seconds', 60)
+        # Ensure interval is an integer (environment variables are strings)
+        interval = int(interval)
         schedule.every(interval).seconds.do(self.run_test)
         
         # Run initial test
