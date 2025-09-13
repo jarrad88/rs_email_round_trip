@@ -4,15 +4,15 @@ services:
   email-delivery-monitor:
   # Use IMAGE_TAG to pin to a specific tag (e.g., main, v1.0.0). Default is 'main' to avoid missing 'latest'.
   image: ghcr.io/jarrad88/rs_email_round_trip:${IMAGE_TAG:-main}
-    container_name: email-delivery-monitor
-    restart: unless-stopped
-
+  container_name: email-delivery-monitor
+  restart: unless-stopped
+    
   # Run as root so the app can create gmail_token.json in the mounted volume on first run
   user: "0:0"
 
     # Environment variables (populated by Portainer Stack variables or .env in Git mode)
     # Use mapping syntax so Portainer Git stacks inject values reliably.
-    environment:
+  environment:
       OFFICE365_TENANT_ID: ${OFFICE365_TENANT_ID}
       OFFICE365_CLIENT_ID: ${OFFICE365_CLIENT_ID}
       OFFICE365_CLIENT_SECRET: ${OFFICE365_CLIENT_SECRET}
