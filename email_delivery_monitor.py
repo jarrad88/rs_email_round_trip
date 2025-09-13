@@ -160,7 +160,12 @@ class EmailDeliveryMonitor:
                         return False
                     
                     flow = InstalledAppFlow.from_client_secrets_file(credentials_file, SCOPES)
-                    creds = flow.run_local_server(port=0)
+                    # For headless/container environments, use console flow
+                    try:
+                        creds = flow.run_local_server(port=0)
+                    except Exception as browser_error:
+                        self.logger.info("Browser authentication failed, trying console flow...")
+                        creds = flow.run_console()
                 
                 # Save credentials for future use
                 with open(token_file, 'w') as token:
