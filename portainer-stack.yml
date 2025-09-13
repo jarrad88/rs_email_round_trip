@@ -7,6 +7,9 @@ services:
     container_name: email-delivery-monitor
     restart: unless-stopped
 
+  # Run as root so the app can create gmail_token.json in the mounted volume on first run
+  user: "0:0"
+
     # Environment variables (populated by Portainer Stack variables or .env in Git mode)
     # Use mapping syntax so Portainer Git stacks inject values reliably.
     environment:

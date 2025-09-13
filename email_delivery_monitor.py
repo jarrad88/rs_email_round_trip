@@ -217,6 +217,18 @@ class EmailDeliveryMonitor:
         except Exception as e:
             self.logger.error(f"Error setting up Gmail service: {e}")
             return False
+        
+        # Permission-safe fallback
+        try:
+            # Try to create/use /app/credentials/gmail_token.json
+            pass
+        except PermissionError as e:
+            import os, logging
+            if os.environ.get("SKIP_GMAIL_SETUP", "false").lower() == "true":
+                logging.warning("Gmail setup skipped due to permissions and SKIP_GMAIL_SETUP=true. Running send-only mode.")
+                return None
+            else:
+                raise
     
     def send_test_email(self, test_id: str) -> bool:
         """Send test email via Office 365."""

@@ -74,6 +74,18 @@ show_config() {
 
 # Main startup sequence
 main() {
+    # Ensure directories exist and are writable
+    mkdir -p /app/credentials /app/logs || true
+    # Try to take ownership of mounted volumes if running with sufficient privileges
+    if command -v chown >/dev/null 2>&1; then
+        chown -R $(id -u):$(id -g) /app/credentials /app/logs 2>/dev/null || true
+    fi
+    # Set restrictive permissions for credentials dir
+    chmod 700 /app/credentials 2>/dev/null || true
+    chmod 755 /app/logs 2>/dev/null || true
+    # Ensure secure file creation defaults
+    umask 077
+
     echo "🔍 Loading optional .env files..."
     for f in /app/.env /app/credentials/.env /.env; do
         if [ -f "$f" ]; then
@@ -102,6 +114,12 @@ main() {
     echo "🚀 Starting Email Delivery Monitor..."
     echo "   (Press Ctrl+C to stop)"
     echo ""
+
+    # If credentials path is not writable and token doesn't exist, avoid hard fail by skipping Gmail setup
+    if [ ! -w /app/credentials ] && [ ! -f /app/credentials/gmail_token.json ]; then
+        echo "⚠️  /app/credentials is not writable and no token exists. Temporarily setting SKIP_GMAIL_SETUP=true to avoid crash."
+        export SKIP_GMAIL_SETUP=true
+    fi
     
     # Start the Python application
     exec python email_delivery_monitor.py
