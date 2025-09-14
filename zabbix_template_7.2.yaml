@@ -1,0 +1,103 @@
+zabbix_export:
+  version: '7.2'
+  template_groups:
+    - uuid: a1b2c3d4e5f64abc8def0123456789ab
+      name: Email Monitoring
+  templates:
+    - uuid: b1c2d3e4f5a64abc8def0123456789ab
+      template: Email Delivery Monitor
+      name: Email Delivery Monitor
+      groups:
+        - name: Email Monitoring
+      description: |
+        Monitors end-to-end email delivery from Office 365 to Gmail.
+        Exposes two trapper items:
+        - email.delivery.time (float seconds)
+        - email.delivery.success (unsigned: 1=success, 0=failure)
+        Set thresholds via macros below.
+      macros:
+        - macro: '{$DELIVERY_WARN}'
+          value: '30'
+          description: Warning threshold for delivery time in seconds.
+        - macro: '{$DELIVERY_CRIT}'
+          value: '60'
+          description: Critical threshold for delivery time in seconds.
+        - macro: '{$NO_DATA_PERIOD}'
+          value: '300'
+          description: Seconds with no new data to alert on.
+      items:
+        - uuid: c1d2e3f4a5b64abc9def0123456789ab
+          name: Email Delivery Time
+          type: TRAP
+          key: email.delivery.time
+          value_type: FLOAT
+          units: s
+          history: 7d
+          trends: 90d
+          description: Round-trip delivery time from send to Gmail receipt (seconds).
+          tags:
+            - tag: component
+              value: email
+            - tag: metric
+              value: delivery_time
+        - uuid: d1e2f3a4b5c64abc8aef0123456789ab
+          name: Email Delivery Success
+          type: TRAP
+          key: email.delivery.success
+          value_type: UNSIGNED
+          history: 7d
+          trends: 90d
+          description: 1 when delivery succeeded; 0 when the last test failed.
+          tags:
+            - tag: component
+              value: email
+            - tag: metric
+              value: delivery_success
+  graphs:
+    - uuid: e1f2a3b44c564abc8bef0123456789ab
+      name: Email Delivery Time
+      width: '900'
+      height: '200'
+      yaxismin: '0'
+      yaxismax: '0'
+      graph_items:
+        - color: '1A7C11'
+          item:
+            host: "Email Delivery Monitor"
+            key: "email.delivery.time"
+  triggers:
+    - uuid: f1a2b3c44d564abc8caf0123456789ab
+      name: Email delivery failed on {HOST.NAME}
+      expression: last(/Email Delivery Monitor/email.delivery.success)=0
+      priority: HIGH
+      description: The most recent email delivery test failed.
+      tags:
+        - tag: scope
+          value: availability
+    - uuid: a2b3c4d45e564abc8daf0123456789ab
+      name: Email delivery time high (>{$DELIVERY_WARN}s) on {HOST.NAME}
+      expression: last(/Email Delivery Monitor/email.delivery.time)>{$DELIVERY_WARN}
+      priority: WARNING
+      description: Delivery time above warning threshold.
+      tags:
+        - tag: scope
+          value: performance
+      dependencies:
+        - name: Email delivery time critical (>{$DELIVERY_CRIT}s) on {HOST.NAME}
+          expression: last(/Email Delivery Monitor/email.delivery.time)>{$DELIVERY_CRIT}
+    - uuid: b2c3d4e45f564abc8eaf0123456789ab
+      name: Email delivery time critical (>{$DELIVERY_CRIT}s) on {HOST.NAME}
+      expression: last(/Email Delivery Monitor/email.delivery.time)>{$DELIVERY_CRIT}
+      priority: HIGH
+      description: Delivery time above critical threshold.
+      tags:
+        - tag: scope
+          value: performance
+    - uuid: c2d3e4f450564abc8faf0123456789ab
+      name: No email delivery data for {$NO_DATA_PERIOD}s on {HOST.NAME}
+      expression: nodata(/Email Delivery Monitor/email.delivery.time,{$NO_DATA_PERIOD})=1
+      priority: WARNING
+      description: No trap values for the configured period (check agent/container).
+      tags:
+        - tag: scope
+          value: availability

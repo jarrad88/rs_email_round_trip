@@ -42,7 +42,7 @@ class EmailDeliveryMonitor:
                 config_file = "config.docker.json"
             else:
                 config_file = "config.json"
-        
+
         # Load optional .env files before reading config so substitution works
         self._load_env_files([
             ".env",
@@ -50,10 +50,15 @@ class EmailDeliveryMonitor:
             "/app/credentials/.env",
         ])
 
+        # Load config and initialize logging
         self.config = self._load_config(config_file)
         self._setup_logging()
+
+        # Initialize runtime state
         self.gmail_service = None
         self.access_token = None
+        self.token_expires_at = 0  # epoch seconds
+        self.msal_app = None
         
     def _load_config(self, config_file: str) -> Dict[str, Any]:
         """Load configuration from JSON file with environment variable substitution."""
@@ -153,25 +158,40 @@ class EmailDeliveryMonitor:
         console_handler.setFormatter(formatter)
         self.logger.addHandler(console_handler)
     
-    def _get_office365_token(self) -> Optional[str]:
-        """Get Office 365 access token using MSAL."""
+    def _get_office365_token(self, force: bool = False) -> Optional[str]:
+        """Get or refresh an Office 365 access token using MSAL with simple caching.
+
+        - If a token exists and is not expiring within 5 minutes, reuse it.
+        - Otherwise, acquire a new token.
+        - When force=True, always fetch a new token.
+        """
         try:
-            config = self.config['office365']
-            app = msal.ConfidentialClientApplication(
-                config['client_id'],
-                authority=f"https://login.microsoftonline.com/{config['tenant_id']}",
-                client_credential=config['client_secret']
-            )
-            
-            # Get token for Microsoft Graph
-            result = app.acquire_token_for_client(scopes=["https://graph.microsoft.com/.default"])
-            
+            # Return cached token if still valid and not forcing refresh
+            if not force and self.access_token and time.time() < (self.token_expires_at - 300):
+                return self.access_token
+
+            # Initialize MSAL app once for lightweight in-memory caching
+            if not self.msal_app:
+                config = self.config['office365']
+                self.msal_app = msal.ConfidentialClientApplication(
+                    config['client_id'],
+                    authority=f"https://login.microsoftonline.com/{config['tenant_id']}",
+                    client_credential=config['client_secret']
+                )
+
+            result = self.msal_app.acquire_token_for_client(scopes=["https://graph.microsoft.com/.default"])
             if "access_token" in result:
-                return result['access_token']
+                self.access_token = result['access_token']
+                # expires_in is seconds until expiry
+                expires_in = int(result.get('expires_in', 3600))
+                self.token_expires_at = int(time.time()) + expires_in
+                return self.access_token
             else:
-                self.logger.error(f"Failed to acquire token: {result.get('error_description')}")
+                # Log a concise error; MSAL returns error and error_description
+                err = result.get('error')
+                desc = result.get('error_description')
+                self.logger.error(f"Failed to acquire token: {err} - {desc}")
                 return None
-                
         except Exception as e:
             self.logger.error(f"Error getting Office 365 token: {e}")
             return None
@@ -243,10 +263,10 @@ class EmailDeliveryMonitor:
     def send_test_email(self, test_id: str) -> bool:
         """Send test email via Office 365."""
         try:
-            if not self.access_token:
-                self.access_token = self._get_office365_token()
-                if not self.access_token:
-                    return False
+            # Ensure we have a valid (non-expiring) token
+            token = self._get_office365_token()
+            if not token:
+                return False
             
             config = self.config['office365']
             monitoring_config = self.config['monitoring']
@@ -270,6 +290,12 @@ class EmailDeliveryMonitor:
                         "contentType": "Text",
                         "content": body
                     },
+                    # Add deterministic headers so an Exchange transport rule can target this traffic
+                    "internetMessageHeaders": [
+                        {"name": "X-EmailMonitor", "value": "true"},
+                        {"name": "X-EmailTestId", "value": test_id},
+                        {"name": "X-EmailMonitor-Sender", "value": config['sender_email']}
+                    ],
                     "toRecipients": [
                         {
                             "emailAddress": {
@@ -277,12 +303,13 @@ class EmailDeliveryMonitor:
                             }
                         }
                     ]
-                }
+                },
+                "saveToSentItems": False
             }
             
             # Send email via Microsoft Graph API
             headers = {
-                'Authorization': f'Bearer {self.access_token}',
+                'Authorization': f'Bearer {token}',
                 'Content-Type': 'application/json'
             }
             
@@ -296,12 +323,27 @@ class EmailDeliveryMonitor:
             if response.status_code == 202:
                 self.logger.info(f"Test email sent successfully with ID: {test_id}")
                 return True
-            else:
-                self.logger.error(f"Failed to send email: {response.status_code} - {response.text}")
-                # Token might be expired, clear it
-                if response.status_code == 401:
-                    self.access_token = None
-                return False
+            
+            # If token expired (401), refresh and retry once
+            if response.status_code == 401:
+                self.logger.warning("Graph returned 401; refreshing token and retrying once...")
+                token = self._get_office365_token(force=True)
+                if not token:
+                    return False
+                headers['Authorization'] = f'Bearer {token}'
+                response = requests.post(
+                    f"https://graph.microsoft.com/v1.0/users/{config['sender_email']}/sendMail",
+                    headers=headers,
+                    json=message,
+                    timeout=30
+                )
+                if response.status_code == 202:
+                    self.logger.info(f"Test email sent successfully after token refresh (ID: {test_id})")
+                    return True
+            
+            # Non-202 or failed retry
+            self.logger.error(f"Failed to send email: {response.status_code} - {response.text}")
+            return False
                 
         except Exception as e:
             self.logger.error(f"Error sending test email: {e}")
