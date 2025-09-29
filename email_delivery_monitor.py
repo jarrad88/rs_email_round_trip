@@ -15,6 +15,11 @@ from typing import Optional, Dict, Any
 import schedule
 import sys
 import os
+try:
+    # Python 3.9+
+    from zoneinfo import ZoneInfo  # type: ignore
+except Exception:
+    ZoneInfo = None  # Fallback handled at runtime
 
 # Microsoft Graph API imports
 import msal
@@ -61,6 +66,17 @@ class EmailDeliveryMonitor:
         self.msal_app = None
         self.last_send_epoch = None  # record last send timestamp for accurate delivery calc
         self.last_message_id = None  # last generated Message-ID for logging/diagnostics
+        # Timezone for displaying sent time (default to Sydney, DST-aware AEST/AEDT)
+        tz_name = self.config.get('monitoring', {}).get('timezone', 'Australia/Sydney')
+        try:
+            if ZoneInfo is not None:
+                self.local_tz = ZoneInfo(tz_name)
+            else:
+                from datetime import timezone
+                self.local_tz = timezone(timedelta(hours=10), name='AEST')
+        except Exception:
+            from datetime import timezone
+            self.local_tz = timezone(timedelta(hours=10), name='AEST')
         
     def _load_config(self, config_file: str) -> Dict[str, Any]:
         """Load configuration from JSON file with environment variable substitution."""
@@ -295,11 +311,14 @@ class EmailDeliveryMonitor:
             
             # Create email content
             subject = f"{monitoring_config['subject_prefix']} - {test_id}"
+            local_sent = datetime.now(self.local_tz)
+            # Format: DD/MM/YYYY hh:mm:ss AM/PM TZ (+offset)
+            sent_str = local_sent.strftime('%d/%m/%Y %I:%M:%S %p %Z (%z)')
             body = f"""
             Email Delivery Test
             
             Test ID: {test_id}
-            Sent Time: {datetime.utcnow().isoformat()}Z
+            Sent Time: {sent_str}
             
             This is an automated email delivery test. Please do not reply.
             """
