@@ -144,6 +144,17 @@ class EmailDeliveryMonitor:
     def _setup_logging(self):
         """Setup logging configuration."""
         log_config = self.config.get('logging', {})
+        # Build timezone for logging using config (default Australia/Sydney)
+        tz_name = self.config.get('monitoring', {}).get('timezone', 'Australia/Sydney')
+        try:
+            if ZoneInfo is not None:
+                log_tz = ZoneInfo(tz_name)
+            else:
+                from datetime import timezone
+                log_tz = timezone(timedelta(hours=10), name='AEST')
+        except Exception:
+            from datetime import timezone
+            log_tz = timezone(timedelta(hours=10), name='AEST')
         
         # Create logs directory if it doesn't exist
         log_file = log_config.get('file', 'email_delivery_monitor.log')
@@ -159,10 +170,22 @@ class EmailDeliveryMonitor:
             maxBytes=log_config.get('max_file_size_mb', 10) * 1024 * 1024,
             backupCount=log_config.get('backup_count', 5)
         )
-        
-        # Setup logging format
-        formatter = logging.Formatter(
-            '%(asctime)s - %(levelname)s - %(message)s'
+
+        # Timezone-aware formatter for AEST/AEDT with 12-hour clock
+        class TZFormatter(logging.Formatter):
+            def __init__(self, fmt=None, datefmt=None, tz=None):
+                super().__init__(fmt=fmt, datefmt=datefmt)
+                self.tz = tz
+            def formatTime(self, record, datefmt=None):
+                dt = datetime.fromtimestamp(record.created, tz=self.tz) if self.tz else datetime.fromtimestamp(record.created)
+                if datefmt:
+                    return dt.strftime(datefmt)
+                return dt.strftime('%Y-%m-%d %H:%M:%S %Z')
+
+        formatter = TZFormatter(
+            fmt='%(asctime)s - %(levelname)s - %(message)s',
+            datefmt='%d/%m/%Y %I:%M:%S %p %Z (%z)',
+            tz=log_tz
         )
         handler.setFormatter(formatter)
         
@@ -336,14 +359,12 @@ class EmailDeliveryMonitor:
                         "contentType": "Text",
                         "content": body
                     },
-                    # Add deterministic headers so an Exchange transport rule can target this traffic
+                    # Add deterministic headers (Graph API limit: <= 5 internetMessageHeaders)
                     "internetMessageHeaders": [
                         {"name": "X-EmailMonitor", "value": "true"},
                         {"name": "X-EmailTestId", "value": test_id},
                         {"name": "X-EmailSendEpoch", "value": str(send_epoch)},
-                        {"name": "Message-ID", "value": message_id},
-                        {"name": "X-Monitor-Message-Id", "value": message_id},
-                        {"name": "X-EmailMonitor-Sender", "value": config['sender_email']}
+                        {"name": "Message-ID", "value": message_id}
                     ],
                     "toRecipients": [
                         {
@@ -434,8 +455,7 @@ class EmailDeliveryMonitor:
                             userId='me', id=message['id'], format='metadata',
                             metadataHeaders=[
                                 'X-EmailTestId', 'X-EmailMonitor', 'X-EmailSendEpoch',
-                                'Message-ID', 'X-Monitor-Message-Id',
-                                'Subject', 'To', 'Delivered-To'
+                                'Message-ID', 'Subject', 'To', 'Delivered-To'
                             ]
                         ).execute()
 
@@ -464,7 +484,7 @@ class EmailDeliveryMonitor:
                             delivery_time = time.time() - start_time
 
                         # Log message-id for diagnostics
-                        gid = headers.get('message-id') or headers.get('x-monitor-message-id')
+                        gid = headers.get('message-id')
                         if gid and self.last_message_id:
                             suffix = " (msg-id verified)" if gid == self.last_message_id else " (msg-id mismatch)"
                         else:
