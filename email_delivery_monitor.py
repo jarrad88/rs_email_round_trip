@@ -59,6 +59,8 @@ class EmailDeliveryMonitor:
         self.access_token = None
         self.token_expires_at = 0  # epoch seconds
         self.msal_app = None
+        self.last_send_epoch = None  # record last send timestamp for accurate delivery calc
+        self.last_message_id = None  # last generated Message-ID for logging/diagnostics
         
     def _load_config(self, config_file: str) -> Dict[str, Any]:
         """Load configuration from JSON file with environment variable substitution."""
@@ -220,7 +222,12 @@ class EmailDeliveryMonitor:
             # If no valid credentials, get new ones
             if not creds or not creds.valid:
                 if creds and creds.expired and creds.refresh_token:
-                    creds.refresh(Request())
+                    try:
+                        creds.refresh(Request())
+                    except Exception as refresh_err:
+                        self.logger.error(f"Gmail token refresh failed: {refresh_err}")
+                        # Fall through to re-auth flow below
+                        creds = None
                 else:
                     if not os.path.exists(credentials_file):
                         self.logger.error(f"Gmail credentials file {credentials_file} not found!")
@@ -229,9 +236,17 @@ class EmailDeliveryMonitor:
                     flow = InstalledAppFlow.from_client_secrets_file(credentials_file, SCOPES)
                     # For headless/container environments, use console flow
                     try:
+                        # Request offline access so we get a long-lived refresh token
                         creds = flow.run_local_server(port=0)
                     except Exception as browser_error:
                         self.logger.info("Browser authentication failed, trying console flow...")
+                        # Build an auth URL explicitly requesting offline access and consent
+                        auth_url, _ = flow.authorization_url(
+                            access_type='offline',
+                            prompt='consent',
+                            include_granted_scopes='true'
+                        )
+                        self.logger.info(f"Open this URL to authorize Gmail access (offline): {auth_url}")
                         creds = flow.run_console()
                 
                 # Save credentials for future use
@@ -244,6 +259,13 @@ class EmailDeliveryMonitor:
                         self.gmail_service = None
                         return True
                     raise
+                
+                # Validate we have a refresh token for long-lived access
+                if not getattr(creds, 'refresh_token', None):
+                    self.logger.warning(
+                        "Gmail credentials do not include a refresh_token. The access token will expire. "
+                        "Re-run auth with explicit consent (access_type=offline, prompt=consent)."
+                    )
             
             self.gmail_service = build('gmail', 'v1', credentials=creds)
             return True
@@ -283,6 +305,11 @@ class EmailDeliveryMonitor:
             """
             
             # Prepare email message
+            send_epoch = int(time.time())
+            # Generate a unique RFC 5322 Message-ID using sender domain
+            sender_email = self.config['office365']['sender_email']
+            domain = sender_email.split('@')[-1] if '@' in sender_email else 'email-monitor.local'
+            message_id = f"<{test_id}.{send_epoch}.{uuid.uuid4().hex[:8]}@{domain}>"
             message = {
                 "message": {
                     "subject": subject,
@@ -294,6 +321,9 @@ class EmailDeliveryMonitor:
                     "internetMessageHeaders": [
                         {"name": "X-EmailMonitor", "value": "true"},
                         {"name": "X-EmailTestId", "value": test_id},
+                        {"name": "X-EmailSendEpoch", "value": str(send_epoch)},
+                        {"name": "Message-ID", "value": message_id},
+                        {"name": "X-Monitor-Message-Id", "value": message_id},
                         {"name": "X-EmailMonitor-Sender", "value": config['sender_email']}
                     ],
                     "toRecipients": [
@@ -322,6 +352,9 @@ class EmailDeliveryMonitor:
             
             if response.status_code == 202:
                 self.logger.info(f"Test email sent successfully with ID: {test_id}")
+                # Record send epoch for accurate delivery timing
+                self.last_send_epoch = send_epoch
+                self.last_message_id = message_id
                 return True
             
             # If token expired (401), refresh and retry once
@@ -339,6 +372,8 @@ class EmailDeliveryMonitor:
                 )
                 if response.status_code == 202:
                     self.logger.info(f"Test email sent successfully after token refresh (ID: {test_id})")
+                    self.last_send_epoch = send_epoch
+                    self.last_message_id = message_id
                     return True
             
             # Non-202 or failed retry
@@ -375,9 +410,49 @@ class EmailDeliveryMonitor:
                     messages = results.get('messages', [])
                     
                     for message in messages:
-                        # Found matching message; treat as delivered
-                        delivery_time = time.time() - start_time
-                        self.logger.info(f"Email {test_id} delivered in {delivery_time:.2f} seconds (message id {message['id']})")
+                        # Verify headers to avoid false positives
+                        msg = self.gmail_service.users().messages().get(
+                            userId='me', id=message['id'], format='metadata',
+                            metadataHeaders=[
+                                'X-EmailTestId', 'X-EmailMonitor', 'X-EmailSendEpoch',
+                                'Message-ID', 'X-Monitor-Message-Id',
+                                'Subject', 'To', 'Delivered-To'
+                            ]
+                        ).execute()
+
+                        headers = {h['name'].lower(): h['value'] for h in msg.get('payload', {}).get('headers', [])}
+                        if headers.get('x-emailmonitor', '').lower() != 'true':
+                            continue
+                        if headers.get('x-emailtestid') != test_id:
+                            continue
+
+                        # Compute delivery time using Gmail internalDate (ms since epoch)
+                        internal_date = int(msg.get('internalDate', 0)) / 1000.0
+                        delivery_time = None
+                        # Prefer send epoch from header for cross-process correctness
+                        header_send_epoch = None
+                        x_send = headers.get('x-emailsendepoch')
+                        if x_send:
+                            try:
+                                header_send_epoch = float(x_send)
+                            except Exception:
+                                header_send_epoch = None
+                        base_send = header_send_epoch or self.last_send_epoch
+                        if base_send:
+                            delivery_time = max(0.0, internal_date - float(base_send))
+                        else:
+                            # Fallback to detection-based timing
+                            delivery_time = time.time() - start_time
+
+                        # Log message-id for diagnostics
+                        gid = headers.get('message-id') or headers.get('x-monitor-message-id')
+                        if gid and self.last_message_id:
+                            suffix = " (msg-id verified)" if gid == self.last_message_id else " (msg-id mismatch)"
+                        else:
+                            suffix = ""
+                        self.logger.info(
+                            f"Email {test_id} delivered in {delivery_time:.2f} seconds (gmail id {message['id']}){suffix}"
+                        )
                         return delivery_time
                 
                 except HttpError as e:

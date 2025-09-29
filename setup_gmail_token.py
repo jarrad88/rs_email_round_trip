@@ -24,25 +24,46 @@ def setup_gmail_token():
     
     try:
         flow = InstalledAppFlow.from_client_secrets_file(credentials_file, SCOPES)
-        
-        # Try browser flow first
+
+        # Try browser flow first (will typically return a refresh token on first consent)
         try:
+            # Note: Some versions of google-auth-oauthlib accept extra kwargs here and forward
+            # them to authorization_url. If unsupported, they will be ignored.
             creds = flow.run_local_server(port=8080)
             print("✅ Browser authentication successful!")
+            # If no refresh_token returned, immediately fall back to manual flow requesting offline access
+            if not getattr(creds, 'refresh_token', None):
+                print("⚠️ No refresh_token returned via browser flow. Falling back to manual flow for offline access…")
+                # Recreate flow to clear any cached params
+                flow = InstalledAppFlow.from_client_secrets_file(credentials_file, SCOPES)
+                auth_url, _ = flow.authorization_url(
+                    access_type='offline',
+                    prompt='consent',
+                    include_granted_scopes='true'
+                )
+                print(f"\nAuthorization URL:\n{auth_url}\n")
+                auth_code = input("Enter the authorization code: ").strip()
+                flow.fetch_token(code=auth_code)
+                creds = flow.credentials
+                print("✅ Manual authentication successful (offline)!\n")
         except Exception as e:
             print(f"Browser authentication failed: {e}")
             print("\n🔗 Manual authentication required:")
             print("1. Copy the URL below and open it in your browser")
             print("2. Complete the OAuth flow")
             print("3. Copy the authorization code and paste it here")
-            
-            # Get authorization URL
-            auth_url, _ = flow.authorization_url(prompt='consent')
+
+            # Build authorization URL requesting offline access and explicit consent
+            auth_url, _ = flow.authorization_url(
+                access_type='offline',
+                prompt='consent',
+                include_granted_scopes='true'
+            )
             print(f"\nAuthorization URL:\n{auth_url}\n")
-            
+
             # Get authorization code from user
             auth_code = input("Enter the authorization code: ").strip()
-            
+
             # Exchange code for token
             flow.fetch_token(code=auth_code)
             creds = flow.credentials
@@ -54,6 +75,7 @@ def setup_gmail_token():
         
         print(f"✅ Token saved to {token_file}")
         print("You can now copy this file to your container!")
+        print("\nℹ️ Important: To avoid 7-day refresh token expiry, set your OAuth consent screen status to 'In production' in Google Cloud Console.")
         return True
         
     except Exception as e:

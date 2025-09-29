@@ -1,0 +1,22 @@
+# Secrets and tokens
+.env
+gmail_credentials.json
+gmail_token.json
+credentials/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+
+# Logs
+logs/
+*.log
+
+# VS Code
+.vscode/
+
+# OS
+Thumbs.db
+.DS_Store

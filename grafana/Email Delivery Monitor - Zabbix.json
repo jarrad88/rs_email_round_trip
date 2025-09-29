@@ -13,7 +13,7 @@
     { "type": "grafana", "id": "grafana", "name": "Grafana", "version": "9.5.0" },
     { "type": "panel", "id": "timeseries", "name": "Time series", "version": "9.5.0" },
     { "type": "panel", "id": "stat", "name": "Stat", "version": "9.5.0" },
-    { "type": "datasource", "id": "alexanderzobnin-zabbix-datasource", "name": "Zabbix", "version": "4.4.4" }
+    { "type": "datasource", "id": "alexanderzobnin-zabbix-datasource", "name": "Zabbix", "version": "5.2.1" }
   ],
   "title": "Email Delivery Monitor (Zabbix)",
   "tags": ["email", "zabbix", "delivery"],
@@ -21,41 +21,12 @@
   "schemaVersion": 38,
   "version": 1,
   "refresh": "30s",
-  "templating": {
-    "list": [
-      {
-        "type": "datasource",
-        "name": "ZABBIX",
-        "label": "Zabbix datasource",
-        "query": "alexanderzobnin-zabbix-datasource",
-        "current": { "selected": true }
-      },
-      {
-        "type": "query",
-        "name": "group",
-        "label": "Host group",
-        "includeAll": true,
-        "current": { "selected": true, "text": "All", "value": "$__all" },
-        "datasource": { "type": "alexanderzobnin-zabbix-datasource", "uid": "${ZABBIX}" },
-        "query": { "queryType": "group" },
-        "refresh": 1
-      },
-      {
-        "type": "query",
-        "name": "host",
-        "label": "Host",
-        "datasource": { "type": "alexanderzobnin-zabbix-datasource", "uid": "${ZABBIX}" },
-        "query": { "queryType": "host", "group": "/.*/" },
-        "refresh": 1
-      }
-    ]
-  },
   "panels": [
     {
       "type": "timeseries",
       "title": "Email Delivery Time (s)",
       "gridPos": { "x": 0, "y": 0, "w": 18, "h": 10 },
-      "datasource": { "type": "alexanderzobnin-zabbix-datasource", "uid": "${ZABBIX}" },
+      "datasource": { "type": "alexanderzobnin-zabbix-datasource", "uid": "${DS_ZABBIX}" },
       "fieldConfig": {
         "defaults": {
           "unit": "s",
@@ -71,13 +42,33 @@
       },
       "targets": [
         {
+          "schema": 12,
+          "queryType": "0",
+          "group": { "filter": "Email Monitoring" },
+          "host": { "filter": "Email Delivery Monitoring" },
+          "application": { "filter": "" },
+          "itemTag": { "filter": "" },
+          "item": { "filter": "Email Delivery Time" },
+          "macro": { "filter": "" },
+          "functions": [],
+          "trigger": { "filter": "" },
+          "countTriggersBy": "",
+          "tags": { "filter": "" },
+          "proxy": { "filter": "" },
+          "textFilter": "",
+          "evaltype": "0",
+          "options": {
+            "showDisabledItems": false,
+            "skipEmptyValues": false,
+            "disableDataAlignment": false,
+            "useZabbixValueMapping": false,
+            "useTrends": "default",
+            "count": false
+          },
+          "table": { "skipEmptyValues": false },
           "refId": "A",
-          "queryType": "item",
-          "group": "$group",
-          "host": "$host",
-          "application": "",
-          "item": "Email Delivery Time",
-          "options": { "resultFormat": "time_series", "showDisabledItems": false }
+          "datasource": { "type": "alexanderzobnin-zabbix-datasource", "uid": "${DS_ZABBIX}" },
+          "resultFormat": "time_series"
         }
       ]
     },
@@ -85,7 +76,7 @@
       "type": "stat",
       "title": "Latest Delivery Time",
       "gridPos": { "x": 18, "y": 0, "w": 6, "h": 5 },
-      "datasource": { "type": "alexanderzobnin-zabbix-datasource", "uid": "${ZABBIX}" },
+      "datasource": { "type": "alexanderzobnin-zabbix-datasource", "uid": "${DS_ZABBIX}" },
       "fieldConfig": {
         "defaults": {
           "unit": "s",
@@ -102,13 +93,33 @@
       "options": { "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false } },
       "targets": [
         {
+          "schema": 12,
+          "queryType": "0",
+          "group": { "filter": "Email Monitoring" },
+          "host": { "filter": "Email Delivery Monitoring" },
+          "application": { "filter": "" },
+          "itemTag": { "filter": "" },
+          "item": { "filter": "Email Delivery Time" },
+          "macro": { "filter": "" },
+          "functions": [],
+          "trigger": { "filter": "" },
+          "countTriggersBy": "",
+          "tags": { "filter": "" },
+          "proxy": { "filter": "" },
+          "textFilter": "",
+          "evaltype": "0",
+          "options": {
+            "showDisabledItems": false,
+            "skipEmptyValues": false,
+            "disableDataAlignment": false,
+            "useZabbixValueMapping": false,
+            "useTrends": "default",
+            "count": false
+          },
+          "table": { "skipEmptyValues": false },
           "refId": "A",
-          "queryType": "item",
-          "group": "$group",
-          "host": "$host",
-          "application": "",
-          "item": "Email Delivery Time",
-          "options": { "resultFormat": "time_series", "showDisabledItems": false }
+          "datasource": { "type": "alexanderzobnin-zabbix-datasource", "uid": "${DS_ZABBIX}" },
+          "resultFormat": "time_series"
         }
       ]
     },
@@ -116,7 +127,7 @@
       "type": "stat",
       "title": "Delivery Success (1/0)",
       "gridPos": { "x": 18, "y": 5, "w": 6, "h": 5 },
-      "datasource": { "type": "alexanderzobnin-zabbix-datasource", "uid": "${ZABBIX}" },
+      "datasource": { "type": "alexanderzobnin-zabbix-datasource", "uid": "${DS_ZABBIX}" },
       "fieldConfig": {
         "defaults": {
           "unit": "none",
@@ -132,13 +143,78 @@
       "options": { "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false } },
       "targets": [
         {
+          "schema": 12,
+          "queryType": "0",
+          "group": { "filter": "Email Monitoring" },
+          "host": { "filter": "Email Delivery Monitoring" },
+          "application": { "filter": "" },
+          "itemTag": { "filter": "" },
+          "item": { "filter": "Email Delivery Success" },
+          "macro": { "filter": "" },
+          "functions": [],
+          "trigger": { "filter": "" },
+          "countTriggersBy": "",
+          "tags": { "filter": "" },
+          "proxy": { "filter": "" },
+          "textFilter": "",
+          "evaltype": "0",
+          "options": {
+            "showDisabledItems": false,
+            "skipEmptyValues": false,
+            "disableDataAlignment": false,
+            "useZabbixValueMapping": false,
+            "useTrends": "default",
+            "count": false
+          },
+          "table": { "skipEmptyValues": false },
           "refId": "A",
-          "queryType": "item",
-          "group": "$group",
-          "host": "$host",
-          "application": "",
-          "item": "Email Delivery Success",
-          "options": { "resultFormat": "time_series", "showDisabledItems": false }
+          "datasource": { "type": "alexanderzobnin-zabbix-datasource", "uid": "${DS_ZABBIX}" },
+          "resultFormat": "time_series"
+        }
+      ]
+    },
+    {
+      "type": "stat",
+      "title": "Success Rate (last 1h)",
+      "gridPos": { "x": 0, "y": 10, "w": 6, "h": 5 },
+      "datasource": { "type": "alexanderzobnin-zabbix-datasource", "uid": "${DS_ZABBIX}" },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "thresholds": { "mode": "absolute", "steps": [ { "color": "red", "value": null }, { "color": "green", "value": 90 } ] }
+        }
+      },
+      "options": { "reduceOptions": { "calcs": ["mean"], "fields": "", "values": false } },
+      "timeFrom": "1h",
+      "targets": [
+        {
+          "schema": 12,
+          "queryType": "0",
+          "group": { "filter": "Email Monitoring" },
+          "host": { "filter": "Email Delivery Monitoring" },
+          "application": { "filter": "" },
+          "itemTag": { "filter": "" },
+          "item": { "filter": "Email Delivery Success" },
+          "macro": { "filter": "" },
+          "functions": [],
+          "trigger": { "filter": "" },
+          "countTriggersBy": "",
+          "tags": { "filter": "" },
+          "proxy": { "filter": "" },
+          "textFilter": "",
+          "evaltype": "0",
+          "options": {
+            "showDisabledItems": false,
+            "skipEmptyValues": false,
+            "disableDataAlignment": false,
+            "useZabbixValueMapping": false,
+            "useTrends": "default",
+            "count": false
+          },
+          "table": { "skipEmptyValues": false },
+          "refId": "A",
+          "datasource": { "type": "alexanderzobnin-zabbix-datasource", "uid": "${DS_ZABBIX}" },
+          "resultFormat": "time_series"
         }
       ]
     }
