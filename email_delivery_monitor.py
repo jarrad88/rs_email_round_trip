@@ -31,6 +31,7 @@ from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
+from email.utils import parsedate_to_datetime
 
 # Zabbix integration
 from pyzabbix import ZabbixMetric, ZabbixSender
@@ -448,32 +449,52 @@ class EmailDeliveryMonitor:
                             userId='me', id=message['id'], format='metadata',
                             metadataHeaders=[
                                 'X-EmailTestId', 'X-EmailMonitor', 'X-EmailSendEpoch',
-                                'Subject', 'To', 'Delivered-To'
+                                'Date', 'Received', 'Subject', 'To', 'Delivered-To'
                             ]
                         ).execute()
 
-                        headers = {h['name'].lower(): h['value'] for h in msg.get('payload', {}).get('headers', [])}
+                        header_list = msg.get('payload', {}).get('headers', [])
+                        headers = {h['name'].lower(): h['value'] for h in header_list}
                         if headers.get('x-emailmonitor', '').lower() != 'true':
                             continue
                         if headers.get('x-emailtestid') != test_id:
                             continue
 
-                        # Compute delivery time using Gmail internalDate (ms since epoch)
-                        internal_date = int(msg.get('internalDate', 0)) / 1000.0
-                        delivery_time = None
-                        # Prefer send epoch from header for cross-process correctness
-                        header_send_epoch = None
+                        # Determine send epoch: prefer post-Graph-202 timestamp, then header, then Date
+                        send_epoch_candidates = []
+                        if self.last_send_epoch:
+                            send_epoch_candidates.append(float(self.last_send_epoch))
                         x_send = headers.get('x-emailsendepoch')
                         if x_send:
                             try:
-                                header_send_epoch = float(x_send)
+                                send_epoch_candidates.append(float(x_send))
                             except Exception:
-                                header_send_epoch = None
-                        base_send = header_send_epoch or self.last_send_epoch
-                        if base_send:
-                            delivery_time = max(0.0, internal_date - float(base_send))
+                                pass
+                        date_hdr = headers.get('date')
+                        if date_hdr:
+                            try:
+                                dt = parsedate_to_datetime(date_hdr)
+                                if dt.tzinfo is None:
+                                    dt = dt.replace(tzinfo=datetime.timezone.utc)
+                                send_epoch_candidates.append(dt.timestamp())
+                            except Exception:
+                                pass
+                        send_epoch = send_epoch_candidates[0] if send_epoch_candidates else None
+
+                        # Stop time: Gmail internalDate (ms since epoch)
+                        internal_date_sec = None
+                        try:
+                            internal_date_sec = int(msg.get('internalDate', 0)) / 1000.0
+                        except Exception:
+                            internal_date_sec = None
+
+                        if send_epoch is not None and internal_date_sec is not None and internal_date_sec > 0:
+                            delivery_time = max(0.0, internal_date_sec - float(send_epoch))
+                        elif send_epoch is not None:
+                            # Fallback to detection time if internalDate unavailable
+                            delivery_time = max(0.0, time.time() - float(send_epoch))
                         else:
-                            # Fallback to detection-based timing
+                            # Last resort: time since polling started
                             delivery_time = time.time() - start_time
 
                         self.logger.info(
@@ -569,7 +590,7 @@ class EmailDeliveryMonitor:
         # Send results to Zabbix
         self.send_to_zabbix(delivery_time, test_id)
         
-        if delivery_time:
+        if delivery_time is not None:
             self.logger.info(f"Test {test_id} completed successfully in {delivery_time:.2f} seconds")
         else:
             self.logger.error(f"Test {test_id} failed - email not received within timeout")
