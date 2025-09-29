@@ -348,10 +348,6 @@ class EmailDeliveryMonitor:
             
             # Prepare email message
             send_epoch = int(time.time())
-            # Generate a unique RFC 5322 Message-ID using sender domain
-            sender_email = self.config['office365']['sender_email']
-            domain = sender_email.split('@')[-1] if '@' in sender_email else 'email-monitor.local'
-            message_id = f"<{test_id}.{send_epoch}.{uuid.uuid4().hex[:8]}@{domain}>"
             message = {
                 "message": {
                     "subject": subject,
@@ -363,8 +359,7 @@ class EmailDeliveryMonitor:
                     "internetMessageHeaders": [
                         {"name": "X-EmailMonitor", "value": "true"},
                         {"name": "X-EmailTestId", "value": test_id},
-                        {"name": "X-EmailSendEpoch", "value": str(send_epoch)},
-                        {"name": "Message-ID", "value": message_id}
+                        {"name": "X-EmailSendEpoch", "value": str(send_epoch)}
                     ],
                     "toRecipients": [
                         {
@@ -394,7 +389,6 @@ class EmailDeliveryMonitor:
                 self.logger.info(f"Test email sent successfully with ID: {test_id}")
                 # Record send epoch for accurate delivery timing
                 self.last_send_epoch = send_epoch
-                self.last_message_id = message_id
                 return True
             
             # If token expired (401), refresh and retry once
@@ -413,7 +407,6 @@ class EmailDeliveryMonitor:
                 if response.status_code == 202:
                     self.logger.info(f"Test email sent successfully after token refresh (ID: {test_id})")
                     self.last_send_epoch = send_epoch
-                    self.last_message_id = message_id
                     return True
             
             # Non-202 or failed retry
@@ -455,7 +448,7 @@ class EmailDeliveryMonitor:
                             userId='me', id=message['id'], format='metadata',
                             metadataHeaders=[
                                 'X-EmailTestId', 'X-EmailMonitor', 'X-EmailSendEpoch',
-                                'Message-ID', 'Subject', 'To', 'Delivered-To'
+                                'Subject', 'To', 'Delivered-To'
                             ]
                         ).execute()
 
@@ -483,14 +476,8 @@ class EmailDeliveryMonitor:
                             # Fallback to detection-based timing
                             delivery_time = time.time() - start_time
 
-                        # Log message-id for diagnostics
-                        gid = headers.get('message-id')
-                        if gid and self.last_message_id:
-                            suffix = " (msg-id verified)" if gid == self.last_message_id else " (msg-id mismatch)"
-                        else:
-                            suffix = ""
                         self.logger.info(
-                            f"Email {test_id} delivered in {delivery_time:.2f} seconds (gmail id {message['id']}){suffix}"
+                            f"Email {test_id} delivered in {delivery_time:.2f} seconds (gmail id {message['id']})"
                         )
                         return delivery_time
                 
