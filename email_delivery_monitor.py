@@ -460,26 +460,26 @@ class EmailDeliveryMonitor:
                         if headers.get('x-emailtestid') != test_id:
                             continue
 
-                        # Determine send epoch: prefer post-Graph-202 timestamp, then header, then Date
-                        send_epoch_candidates = []
-                        if self.last_send_epoch:
-                            send_epoch_candidates.append(float(self.last_send_epoch))
-                        x_send = headers.get('x-emailsendepoch')
-                        if x_send:
-                            try:
-                                send_epoch_candidates.append(float(x_send))
-                            except Exception:
-                                pass
+                        # Determine send epoch: prefer Date (server-side stamp), then X-EmailSendEpoch, then last_send_epoch
+                        send_epoch = None
                         date_hdr = headers.get('date')
                         if date_hdr:
                             try:
                                 dt = parsedate_to_datetime(date_hdr)
                                 if dt.tzinfo is None:
                                     dt = dt.replace(tzinfo=datetime.timezone.utc)
-                                send_epoch_candidates.append(dt.timestamp())
+                                send_epoch = dt.timestamp()
                             except Exception:
-                                pass
-                        send_epoch = send_epoch_candidates[0] if send_epoch_candidates else None
+                                send_epoch = None
+                        if send_epoch is None:
+                            x_send = headers.get('x-emailsendepoch')
+                            if x_send:
+                                try:
+                                    send_epoch = float(x_send)
+                                except Exception:
+                                    send_epoch = None
+                        if send_epoch is None and self.last_send_epoch:
+                            send_epoch = float(self.last_send_epoch)
 
                         # Stop time: Gmail internalDate (ms since epoch)
                         internal_date_sec = None
@@ -488,14 +488,48 @@ class EmailDeliveryMonitor:
                         except Exception:
                             internal_date_sec = None
 
-                        if send_epoch is not None and internal_date_sec is not None and internal_date_sec > 0:
-                            delivery_time = max(0.0, internal_date_sec - float(send_epoch))
+                        # Choose a receive epoch not earlier than send to avoid negative/zero due to clock skew
+                        receive_candidates = []
+                        if internal_date_sec and internal_date_sec > 0:
+                            receive_candidates.append(internal_date_sec)
+                        # Also consider Received header timestamp if available
+                        try:
+                            first_received = next((h['value'] for h in header_list if h['name'].lower() == 'received'), None)
+                            if first_received and ';' in first_received:
+                                date_str = first_received.rsplit(';', 1)[-1].strip()
+                                rd = parsedate_to_datetime(date_str)
+                                if rd.tzinfo is None:
+                                    from datetime import timezone
+                                    rd = rd.replace(tzinfo=timezone.utc)
+                                receive_candidates.append(rd.timestamp())
+                        except Exception:
+                            pass
+
+                        if send_epoch is not None and receive_candidates:
+                            # Pick the max receive time to ensure it's not before send time
+                            receive_epoch = max(receive_candidates)
+                            if receive_epoch < send_epoch:
+                                # Fallback to now to avoid zero/negative in the presence of severe skew
+                                receive_epoch = time.time()
+                            delivery_time = max(0.0, receive_epoch - float(send_epoch))
                         elif send_epoch is not None:
-                            # Fallback to detection time if internalDate unavailable
+                            # Fallback to detection time if no receive timestamp extracted
                             delivery_time = max(0.0, time.time() - float(send_epoch))
                         else:
                             # Last resort: time since polling started
                             delivery_time = time.time() - start_time
+
+                        # One-time timing debug to validate sources
+                        if getattr(self, 'timing_debug_once', True):
+                            self.logger.info(
+                                "Timing debug: send sources -> Date=%s, X-EmailSendEpoch=%s, last_send_epoch=%s",
+                                headers.get('date'), headers.get('x-emailsendepoch'), str(self.last_send_epoch)
+                            )
+                            self.logger.info(
+                                "Timing debug: chosen send_epoch=%s, receive candidates -> internalDate=%s, Received=%s, chosen receive_epoch=%s",
+                                str(send_epoch), str(internal_date_sec), str(next((h['value'] for h in header_list if h['name'].lower()=='received'), None)), str(receive_epoch if 'receive_epoch' in locals() else None)
+                            )
+                            self.timing_debug_once = False
 
                         self.logger.info(
                             f"Email {test_id} delivered in {delivery_time:.2f} seconds (gmail id {message['id']})"
